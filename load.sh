@@ -130,7 +130,11 @@ if [[ -n "$cleanup_dir" ]]; then
 fi
 
 # ---------- 5) load secrets ----------
-mapfile -t envs < <(op env ls)
+if ! envs_output="$(op env ls)"; then
+  echo "::error::'op env ls' failed. Check your OP_SERVICE_ACCOUNT_TOKEN (or Connect credentials) and network."
+  exit 1
+fi
+mapfile -t envs <<< "$envs_output"
 
 # filter blank lines
 filtered=()
@@ -145,6 +149,17 @@ fi
 
 printf '%s\n' "${filtered[@]}"
 
+# Encode a value for use in a GitHub workflow command (e.g. ::add-mask::).
+# Commands are parsed line-by-line, so newlines must be encoded as %0A,
+# otherwise multi-line secrets would only mask their first line and leak the rest.
+encode_workflow_value() {
+  local v="$1"
+  v="${v//'%'/%25}"
+  v="${v//$'\r'/%0D}"
+  v="${v//$'\n'/%0A}"
+  printf '%s' "$v"
+}
+
 managed=()
 for name in "${filtered[@]}"; do
   echo "Populating variable: $name"
@@ -157,9 +172,16 @@ for name in "${filtered[@]}"; do
   fi
   [[ -z "$val" ]] && continue
 
-  # MUST mask before writing — registers the value so the env block in
-  # subsequent step logs is rendered as ***.
-  echo "::add-mask::$val"
+  # Register mask BEFORE writing the value anywhere — so the env block in
+  # later steps' logs renders as ***.
+  # Mask the full value (encoded) AND each line separately, in case the runner
+  # matches against single log lines.
+  echo "::add-mask::$(encode_workflow_value "$val")"
+  if [[ "$val" == *$'\n'* ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && echo "::add-mask::$(encode_workflow_value "$line")"
+    done <<< "$val"
+  fi
 
   delim="OP_EOF_$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 16 || echo $RANDOM$RANDOM)"
   if [[ "${INPUT_EXPORT_ENV:-false}" == "true" ]]; then
