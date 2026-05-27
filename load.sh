@@ -81,17 +81,17 @@ else
   [[ "$version" != v* ]] && version="v$version"
 
   os="$(uname -s)"
-  arch_raw="$(uname -m)"
-  case "$arch_raw" in
-    x86_64|amd64)   arch=amd64 ;;
-    aarch64|arm64)  arch=arm64 ;;
-    armv7l|armhf)   arch=arm ;;
-    i386|i686)      arch=386 ;;
-    *) echo "::error::Unsupported architecture: $arch_raw"; exit 1 ;;
-  esac
 
   case "$os" in
     Linux)
+      arch_raw="$(uname -m)"
+      case "$arch_raw" in
+        x86_64|amd64)   arch=amd64 ;;
+        aarch64|arm64)  arch=arm64 ;;
+        armv7l|armhf)   arch=arm ;;
+        i386|i686)      arch=386 ;;
+        *) echo "::error::Unsupported architecture: $arch_raw"; exit 1 ;;
+      esac
       url="https://cache.agilebits.com/dist/1P/op2/pkg/${version}/op_linux_${arch}_${version}.zip"
       echo "Downloading $url"
       curl -fsSL "$url" -o "$install_dir/op.zip"
@@ -134,7 +134,12 @@ if ! envs_output="$(op env ls)"; then
   echo "::error::'op env ls' failed. Check your OP_SERVICE_ACCOUNT_TOKEN (or Connect credentials) and network."
   exit 1
 fi
-mapfile -t envs <<< "$envs_output"
+
+# portable split: bash 3.2 on macOS lacks `mapfile`
+envs=()
+while IFS= read -r line; do
+  envs+=("$line")
+done <<< "$envs_output"
 
 # filter blank lines
 filtered=()
@@ -183,7 +188,13 @@ for name in "${filtered[@]}"; do
     done <<< "$val"
   fi
 
-  delim="OP_EOF_$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 16 || echo $RANDOM$RANDOM)"
+  # Build a random heredoc delimiter without piping /dev/urandom through tr,
+  # which trips `set -o pipefail` via SIGPIPE on head.
+  rand_hex="$(LC_ALL=C dd if=/dev/urandom bs=8 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n' || true)"
+  if [[ -z "$rand_hex" ]]; then
+    rand_hex="${RANDOM}${RANDOM}${RANDOM}"
+  fi
+  delim="OP_EOF_${rand_hex}"
   if [[ "${INPUT_EXPORT_ENV:-false}" == "true" ]]; then
     target="$GITHUB_ENV"
   else
