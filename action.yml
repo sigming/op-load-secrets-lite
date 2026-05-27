@@ -1,0 +1,34 @@
+name: 'Load Secrets from 1Password (lite)'
+description: 'Composite reimplementation of 1password/load-secrets-action (Linux/macOS, bash).'
+author: 'ming'
+branding:
+  icon: lock
+  color: blue
+inputs:
+  export-env:
+    description: 'Export the secrets as environment variables (true) or step outputs (false).'
+    default: 'false'
+  unset-previous:
+    description: 'Unset env vars populated by a previous run of this action (via OP_MANAGED_VARIABLES).'
+    default: 'false'
+  version:
+    description: 'op CLI version to install: "latest", "latest-beta", or e.g. "2.30.0" / "v2.30.0".'
+    default: 'latest'
+  install-dir:
+    description: 'Where to install op CLI (default: $RUNNER_TEMP/op-cli). Skipped if op already exists on PATH.'
+    default: ''
+outputs:
+  install-dir:
+    description: 'Directory op CLI was installed into. Empty if op was already on PATH. Use for cleanup.'
+    value: ${{ steps.load.outputs.install-dir }}
+runs:
+  using: composite
+  steps:
+    - id: load
+      shell: bash
+      env:
+        INPUT_EXPORT_ENV: ${{ inputs.export-env }}
+        INPUT_UNSET_PREVIOUS: ${{ inputs.unset-previous }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_INSTALL_DIR: ${{ inputs.install-dir }}
+      run: ${{ github.action_path }}/load.sh
